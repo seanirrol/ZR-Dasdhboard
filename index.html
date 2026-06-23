@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zenith Rising · Faction Leaderboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=Chakra+Petch:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: #07070a; font-family: 'Rajdhani', sans-serif; color: #d8d2c6; min-height: 100vh; }
+
+  :root { --gold: #d4a23c; }
+
+  @keyframes zr-bob   { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+  @keyframes zr-pulse { 0%,100% { opacity:1; box-shadow:0 0 0 0 rgba(232,196,106,0.5); } 50% { opacity:0.6; box-shadow:0 0 0 6px rgba(232,196,106,0); } }
+  @keyframes zr-ember { 0%,100% { opacity:0.5; } 50% { opacity:0.85; } }
+  @keyframes zr-shine { 0% { transform:translateX(-120%) skewX(-20deg); } 60%,100% { transform:translateX(320%) skewX(-20deg); } }
+
+  a { text-decoration: none; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); }
+  ::-webkit-scrollbar-thumb { background: rgba(212,162,60,0.35); border-radius: 3px; }
+
+  /* nav hover */
+  .nav-link { color: #8c867a; cursor: pointer; transition: color .15s; }
+  .nav-link:hover { color: #e8c46a; }
+
+  /* cta hover */
+  .cta-primary { box-shadow: 0 6px 24px rgba(212,162,60,0.35); transition: box-shadow .18s; }
+  .cta-primary:hover { box-shadow: 0 8px 30px rgba(212,162,60,0.55); }
+  .cta-primary-lg { box-shadow: 0 6px 24px rgba(212,162,60,0.3); transition: box-shadow .18s; }
+  .cta-primary-lg:hover { box-shadow: 0 8px 32px rgba(212,162,60,0.5); }
+  .cta-secondary { background: rgba(212,162,60,0.06); transition: background .18s; }
+  .cta-secondary:hover { background: rgba(212,162,60,0.14); }
+
+  /* board cards */
+  .cat-card { transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+  .cat-card:hover { transform: translateY(-3px); box-shadow: 0 14px 34px rgba(0,0,0,0.45); border-color: rgba(212,162,60,0.45) !important; }
+
+  /* table rows */
+  .war-row { transition: background .12s; }
+  .war-row:hover { background: rgba(232,196,106,0.045); }
+  .cat-row { transition: background .12s; }
+  .cat-row:hover { background: rgba(255,255,255,0.025); }
+
+  /* footer links */
+  .footer-link { cursor: pointer; transition: color .15s; }
+  .footer-link:hover { color: var(--gold); }
+
+  /* loading overlay */
+  #loading-overlay {
+    position: fixed; inset: 0; z-index: 100;
+    background: #07070a;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 18px;
+    transition: opacity .5s;
+  }
+  #loading-overlay.fade-out { opacity: 0; pointer-events: none; }
+
+  /* autocomplete datalist styling helper */
+  input[list] { cursor: text; }
+
+  /* pulse dot standalone */
+  .pulse-dot { animation: zr-pulse 2s ease-in-out infinite; }
+</style>
+</head>
+<body>
+<div style="background: radial-gradient(120% 80% at 50% -10%, #16120a 0%, #0b0b0e 45%, #07070a 100%); min-height: 100vh;">
+
+  <!-- ═══ NAV ═══ -->
+  <nav style="position:sticky; top:0; z-index:20; display:flex; align-items:center; justify-content:space-between; padding:12px 40px; border-bottom:1px solid rgba(212,162,60,0.22); background:rgba(8,8,11,0.82); backdrop-filter:blur(10px);">
+    <img src="project/assets/zenith-logo-wide.png" alt="Zenith Rising" style="height:64px; width:auto; mix-blend-mode:lighten;">
+    <div style="display:flex; align-items:center; gap:28px; font-family:'Chakra Petch',sans-serif; font-size:13px; letter-spacing:2px; font-weight:600; white-space:nowrap;">
+      <span class="nav-link">OVERVIEW</span>
+      <span class="nav-link">ROSTER</span>
+      <span style="color:var(--gold); border-bottom:2px solid var(--gold); padding-bottom:3px; cursor:pointer;">LEADERBOARDS</span>
+      <span class="nav-link">WAR CHEST</span>
+      <a href="https://www.torn.com/factions.php?step=profile&ID=39781&referredFrom=3967014" target="_blank" rel="noopener" style="color:#0b0b0e; background:linear-gradient(180deg,#f3d685,#cf9a36); padding:9px 17px; border-radius:2px; font-weight:700; cursor:pointer; box-shadow:0 3px 16px rgba(212,162,60,0.3);">ENTER FACTION →</a>
+    </div>
+  </nav>
+
+  <!-- ═══ HERO ═══ -->
+  <div style="position:relative; width:100%; height:92vh; min-height:620px; overflow:hidden; background:#0b0a07;">
+    <img src="project/assets/hero-bg.png" alt="Zenith Rising warriors" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position:62% center;">
+    <div style="position:absolute; inset:0; background:linear-gradient(96deg, rgba(7,6,4,0.95) 0%, rgba(7,6,4,0.8) 26%, rgba(7,6,4,0.34) 48%, rgba(7,6,4,0) 66%);"></div>
+    <div style="position:absolute; left:0; right:0; bottom:0; height:36%; background:linear-gradient(0deg, rgba(7,6,4,0.82), transparent);"></div>
+    <div style="position:absolute; left:0; top:0; bottom:0; width:54%; min-width:440px; display:flex; flex-direction:column; justify-content:center; padding:48px 64px;">
+      <div style="display:flex; align-items:center; gap:10px; font-family:'Chakra Petch',sans-serif; font-size:12px; letter-spacing:5px; color:var(--gold); margin-bottom:22px;">
+        <span class="pulse-dot" style="width:8px; height:8px; border-radius:50%; background:#e8c46a; display:inline-block;"></span>
+        <span id="hero-status">FACTION DASHBOARD · SYNCING</span>
+      </div>
+      <h1 style="margin:0 0 16px; font-family:'Cinzel',serif; font-weight:900; font-size:clamp(42px,5.6vw,82px); line-height:0.92; letter-spacing:2px; color:#f3ecdc; text-shadow:0 4px 34px rgba(0,0,0,0.75);">ZENITH<br><span style="color:var(--gold);">RISING</span></h1>
+      <div style="height:3px; width:200px; background:linear-gradient(90deg, var(--gold), transparent); margin:4px 0 22px;"></div>
+      <p style="font-family:'Cinzel',serif; font-size:clamp(17px,1.7vw,22px); letter-spacing:1px; color:#e7ddc8; margin:0 0 10px; font-weight:700;">Forged in war. Bound by brotherhood.</p>
+      <p style="font-size:16px; max-width:48ch; line-height:1.5; margin:0 0 30px; color:#a39d90;">The faction's deadliest operators over the last <span id="hero-period">7 days</span> — every victory, every campaign, ranked across the boards below.</p>
+      <div style="display:flex; gap:16px; flex-wrap:wrap;">
+        <a href="https://www.torn.com/factions.php?step=profile&ID=39781&referredFrom=3967014" target="_blank" rel="noopener" class="cta-primary" style="color:#0b0b0e; background:linear-gradient(180deg,#f7da88,#cf9a36); border:1px solid #f3d685; padding:16px 30px; font-family:'Chakra Petch',sans-serif; font-weight:700; font-size:15px; letter-spacing:2px; border-radius:2px;">ENTER FACTION PAGE →</a>
+        <a href="#boards" class="cta-secondary" style="color:var(--gold); border:1px solid rgba(212,162,60,0.5); padding:16px 30px; font-family:'Chakra Petch',sans-serif; font-weight:700; font-size:15px; letter-spacing:2px; border-radius:2px;">VIEW LEADERBOARDS</a>
+      </div>
+      <div style="display:flex; align-items:center; gap:34px; margin-top:40px; padding-top:24px; border-top:1px solid rgba(212,162,60,0.18);">
+        <div>
+          <div id="stat-members" style="font-family:'Cinzel',serif; font-weight:900; font-size:28px; color:#f0e6d0;">—</div>
+          <div style="font-family:'Chakra Petch',sans-serif; font-size:11px; letter-spacing:2px; color:#8c867a; margin-top:2px;">MEMBERS</div>
+        </div>
+        <div style="width:1px; height:40px; background:rgba(212,162,60,0.25);"></div>
+        <div>
+          <div style="font-family:'Cinzel',serif; font-weight:900; font-size:28px; color:var(--gold);">4.28M</div>
+          <div style="font-family:'Chakra Petch',sans-serif; font-size:11px; letter-spacing:2px; color:#8c867a; margin-top:2px;">WAR CHEST · $DGN</div>
+        </div>
+        <div style="width:1px; height:40px; background:rgba(212,162,60,0.25);"></div>
+        <div>
+          <div style="font-family:'Cinzel',serif; font-weight:900; font-size:28px; color:#cfd6e2;">#3</div>
+          <div style="font-family:'Chakra Petch',sans-serif; font-size:11px; letter-spacing:2px; color:#8c867a; margin-top:2px;">GLOBAL RANK</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ VANGUARD PODIUM ═══ -->
+  <div style="padding:70px 40px 0; text-align:center;">
+    <div style="font-family:'Chakra Petch',sans-serif; font-size:12px; letter-spacing:5px; color:var(--gold); margin-bottom:8px;">— THE VANGUARD —</div>
+    <div style="font-family:'Cinzel',serif; font-weight:900; font-size:40px; color:#f0e6d0; letter-spacing:1px;">Top 3 Performers</div>
+    <p style="font-size:15px; color:#8c867a; margin:8px 0 46px; letter-spacing:1px;">Highest gym effort + attack energy · last <span id="podium-period">7 days</span></p>
+
+    <div style="display:flex; justify-content:center; align-items:flex-end; gap:26px; max-width:980px; margin:0 auto;">
+
+      <!-- #2 SILVER -->
+      <div style="flex:1; max-width:256px; display:flex; flex-direction:column; align-items:center;">
+        <div style="position:relative;">
+          <div id="pod-silver-av" style="width:98px; height:98px; border:2px solid #b9bec7; border-radius:50%; background:repeating-linear-gradient(45deg,#1b1b22 0 4px,#24242c 4px 8px); box-shadow:0 0 22px rgba(190,196,205,0.28);"></div>
+          <div style="position:absolute; bottom:-15px; left:50%; transform:translateX(-50%); width:42px; height:42px; border-radius:50%; background:radial-gradient(circle at 35% 30%, #ffffff, #c2c7cf 45%, #8a9099); border:2px solid #e8ecf2; display:flex; align-items:center; justify-content:center; font-family:'Cinzel',serif; font-weight:900; font-size:18px; color:#3a3d44; box-shadow:0 4px 12px rgba(0,0,0,0.55);">2</div>
+        </div>
+        <div id="pod-silver-name" style="margin:28px 0 2px; font-family:'Chakra Petch',sans-serif; font-size:14px; color:#e3ddd0;">—</div>
+        <div id="pod-silver-energy" style="font-family:'Cinzel',serif; font-weight:700; font-size:27px; color:#cfd4dc;">—</div>
+        <div style="font-size:11px; letter-spacing:2px; color:#8c867a; margin-bottom:14px;">TOTAL E · <span class="period-label">7 DAYS</span></div>
+        <div style="width:100%; height:122px; border:1px solid rgba(185,190,199,0.35); border-radius:4px 4px 0 0; background:linear-gradient(180deg, rgba(190,196,205,0.14), rgba(190,196,205,0.02)); display:flex; align-items:center; justify-content:center; font-family:'Cinzel',serif; font-weight:900; font-size:58px; color:rgba(190,196,205,0.42);">II</div>
+      </div>
+
+      <!-- #1 GOLD -->
+      <div style="flex:1; max-width:288px; display:flex; flex-direction:column; align-items:center;">
+        <div style="font-family:'Chakra Petch',sans-serif; font-size:11px; letter-spacing:3px; margin-bottom:10px; color:var(--gold);">★ FACTION CHAMPION</div>
+        <div style="position:relative;">
+          <div id="pod-champ-av" style="width:122px; height:122px; border:2px solid var(--gold); border-radius:50%; background:repeating-linear-gradient(45deg,#1b1b22 0 4px,#24242c 4px 8px); box-shadow:0 0 38px rgba(232,196,106,0.5); animation:zr-bob 4.5s ease-in-out infinite; overflow:hidden; position:relative;">
+            <div style="position:absolute; top:0; left:0; width:40%; height:100%; background:linear-gradient(90deg, transparent, rgba(255,245,210,0.45), transparent); animation:zr-shine 4.5s ease-in-out infinite;"></div>
+          </div>
+          <div style="position:absolute; bottom:-16px; left:50%; transform:translateX(-50%); width:50px; height:50px; border-radius:50%; background:radial-gradient(circle at 35% 30%, #fff4cf, #f3d685 40%, #cf9a36); border:2px solid #f7da88; display:flex; align-items:center; justify-content:center; font-family:'Cinzel',serif; font-weight:900; font-size:21px; color:#5a3f0c; box-shadow:0 5px 16px rgba(0,0,0,0.6);">1</div>
+        </div>
+        <div id="pod-champ-name" style="margin:32px 0 2px; font-family:'Chakra Petch',sans-serif; font-size:16px; font-weight:700; color:#f3e9d2;">—</div>
+        <div id="pod-champ-energy" style="font-family:'Cinzel',serif; font-weight:900; font-size:33px; color:var(--gold);">—</div>
+        <div style="font-size:11px; letter-spacing:2px; color:#a08a4c; margin-bottom:14px;">TOTAL E · <span class="period-label">7 DAYS</span></div>
+        <div style="width:100%; height:180px; border:1px solid rgba(212,162,60,0.5); border-radius:4px 4px 0 0; background:linear-gradient(180deg, rgba(232,196,106,0.24), rgba(232,196,106,0.03)); display:flex; align-items:center; justify-content:center; font-family:'Cinzel',serif; font-weight:900; font-size:86px; color:var(--gold); text-shadow:0 0 26px rgba(232,196,106,0.45);">I</div>
+      </div>
+
+      <!-- #3 BRONZE -->
+      <div style="flex:1; max-width:256px; display:flex; flex-direction:column; align-items:center;">
+        <div style="position:relative;">
+          <div id="pod-bronze-av" style="width:98px; height:98px; border:2px solid #c0824a; border-radius:50%; background:repeating-linear-gradient(45deg,#1b1b22 0 4px,#24242c 4px 8px); box-shadow:0 0 22px rgba(192,130,74,0.28);"></div>
+          <div style="position:absolute; bottom:-15px; left:50%; transform:translateX(-50%); width:42px; height:42px; border-radius:50%; background:radial-gradient(circle at 35% 30%, #f0c79a, #c0824a 45%, #7d4a23); border:2px solid #e6a86b; display:flex; align-items:center; justify-content:center; font-family:'Cinzel',serif; font-weight:900; font-size:18px; color:#3e2410; box-shadow:0 4px 12px rgba(0,0,0,0.55);">3</div>
+        </div>
+        <div id="pod-bronze-name" style="margin:28px 0 2px; font-family:'Chakra Petch',sans-serif; font-size:14px; color:#e3ddd0;">—</div>
+        <div id="pod-bronze-energy" style="font-family:'Cinzel',serif; font-weight:700; font-size:27px; color:#d6a877;">—</div>
+        <div style="font-size:11px; letter-spacing:2px; color:#8c867a; margin-bottom:14px;">TOTAL E · <span class="period-label">7 DAYS</span></div>
+        <div style="width:100%; height:98px; border:1px solid rgba(192,130,74,0.35); border-radius:4px 4px 0 0; background:linear-gradient(180deg, rgba(192,130,74,0.14), rgba(192,130,74,0.02)); display:flex; align-items:center; justify-content:center; font-family:'Cinzel',serif; font-weight:900; font-size:52px; color:rgba(192,130,74,0.46);">III</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ LEADERBOARDS ═══ -->
+  <div id="boards" style="padding:76px 40px 0;">
+
+    <!-- control row -->
+    <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:24px; flex-wrap:wrap; border-bottom:1px solid rgba(212,162,60,0.25); padding-bottom:18px; margin-bottom:24px;">
+      <div>
+        <div style="font-family:'Chakra Petch',sans-serif; font-size:12px; letter-spacing:5px; color:var(--gold); margin-bottom:8px;">— THE PERFORMANCE LEDGER —</div>
+        <div style="font-family:'Cinzel',serif; font-weight:900; font-size:36px; color:#f0e6d0; line-height:1;">Faction Leaderboards</div>
+        <div style="display:flex; align-items:center; gap:14px; margin-top:10px; flex-wrap:wrap;">
+          <span id="gym-note" style="font-size:14px; color:#8c867a; letter-spacing:1px;">gym stat gains (all-time until 7d baseline builds) + atk×25</span>
+          <span style="display:inline-flex; align-items:center; gap:7px; font-family:'Chakra Petch',sans-serif; font-size:11px; letter-spacing:2px; font-weight:700; border:1px solid rgba(212,162,60,0.3); border-radius:20px; padding:5px 12px;">
+            <span id="status-dot" class="pulse-dot" style="width:7px; height:7px; border-radius:50%; background:#e8c46a; display:inline-block;"></span>
+            <span id="status-text" style="color:#d6b878;">SYNCING · TORN API</span>
+          </span>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:14px;">
+        <div style="position:relative; display:flex; align-items:center; gap:8px; background:rgba(255,255,255,0.03); border:1px solid rgba(212,162,60,0.25); border-radius:3px; padding:10px 14px;">
+          <span style="color:#6f6a60; font-size:15px;">⚲</span>
+          <input id="search-input" placeholder="Search member…" autocomplete="off" style="background:transparent; border:none; outline:none; color:#d8d2c6; font-family:'Chakra Petch',sans-serif; font-size:13px; letter-spacing:1px; width:180px;">
+          <div id="search-suggestions" style="display:none; position:absolute; top:100%; left:0; right:0; background:#1a1822; border:1px solid rgba(212,162,60,0.3); border-top:none; border-radius:0 0 3px 3px; max-height:200px; overflow-y:auto; z-index:50;"></div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button id="pill-7d" onclick="setPeriod('7d')" style="padding:9px 16px; border-radius:3px; font-family:'Chakra Petch',sans-serif; font-size:12px; letter-spacing:1px; font-weight:700; cursor:pointer; white-space:nowrap; color:#0b0b0e; background:linear-gradient(180deg,#f3d685,#cf9a36); border:1px solid #f3d685;">7 DAYS</button>
+          <button id="pill-30d" onclick="setPeriod('30d')" style="padding:9px 16px; border-radius:3px; font-family:'Chakra Petch',sans-serif; font-size:12px; letter-spacing:1px; font-weight:700; cursor:pointer; white-space:nowrap; color:#9a948a; background:rgba(255,255,255,0.03); border:1px solid rgba(212,162,60,0.25);">30 DAYS</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- WAR EFFORT BOARD -->
+    <div style="margin-bottom:26px; border:1px solid rgba(212,162,60,0.35); border-radius:6px; background:linear-gradient(180deg,#17130b,#0e0d11); overflow:hidden; box-shadow:0 16px 44px rgba(0,0,0,0.45);">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; padding:18px 22px; border-bottom:1px solid rgba(212,162,60,0.2); background:linear-gradient(90deg, rgba(232,196,106,0.1), rgba(232,196,106,0.02));">
+        <div style="display:flex; align-items:baseline; gap:12px;">
+          <span style="font-family:'Cinzel',serif; font-weight:900; font-size:24px; color:#f3e3b8;">War Effort</span>
+          <span style="font-family:'Chakra Petch',sans-serif; font-size:12px; letter-spacing:2px; color:#9a8f73;">GYM GAINS + ATTACK ENERGY · LAST <span id="war-period-caps">7 DAYS</span></span>
+        </div>
+        <span id="war-updated" style="font-family:'Chakra Petch',sans-serif; font-size:11px; letter-spacing:1px; color:#7d776c;">Updated — · atk = 25 E</span>
+      </div>
+      <div style="display:grid; grid-template-columns:46px 1fr 130px 130px 150px; gap:10px; align-items:center; padding:11px 22px; border-bottom:1px solid rgba(255,255,255,0.05); font-family:'Chakra Petch',sans-serif; font-size:10px; letter-spacing:1.5px; color:#6f6a60;">
+        <span>#</span><span>MEMBER</span><span style="text-align:right;">GYM E</span><span style="text-align:right;">ATK E</span><span style="text-align:right;">TOTAL E</span>
+      </div>
+      <div id="war-rows" style="max-height:720px; overflow-y:auto;"></div>
+    </div>
+
+    <!-- CATEGORY BREAKDOWNS label -->
+    <div style="font-family:'Chakra Petch',sans-serif; font-size:12px; letter-spacing:4px; color:#7d776c; margin-bottom:16px;">CATEGORY BREAKDOWNS</div>
+
+    <!-- 6 category boards grid -->
+    <div id="cat-grid" style="display:grid; grid-template-columns:repeat(2, 1fr); gap:22px;"></div>
+
+    <!-- FACTION CTA -->
+    <div id="faction" style="margin-top:56px; border:1px solid rgba(212,162,60,0.3); border-radius:5px; background:radial-gradient(120% 160% at 0% 0%, rgba(232,196,106,0.1), transparent 60%), radial-gradient(120% 160% at 100% 100%, rgba(47,95,208,0.12), transparent 60%), linear-gradient(180deg,#14110a,#0c0b0e); padding:44px 46px; display:flex; align-items:center; justify-content:space-between; gap:24px; flex-wrap:wrap;">
+      <div>
+        <div style="font-family:'Cinzel',serif; font-weight:900; font-size:32px; color:#f0e6d0;">Enter the full faction page</div>
+        <div style="font-size:15px; color:#8c867a; margin-top:8px; letter-spacing:1px;">Roster, war chest, campaign history and every member's profile — for the brotherhood of Zenith Rising.</div>
+      </div>
+      <a href="https://www.torn.com/factions.php?step=profile&ID=39781&referredFrom=3967014" target="_blank" rel="noopener" class="cta-primary-lg" style="color:#0b0b0e; background:linear-gradient(180deg,#f7da88,#cf9a36); border:1px solid #f3d685; padding:16px 32px; font-family:'Chakra Petch',sans-serif; font-weight:700; font-size:15px; letter-spacing:2px; border-radius:2px; white-space:nowrap;">GO TO FACTION PAGE →</a>
+    </div>
+  </div>
+
+  <!-- ═══ FOOTER ═══ -->
+  <div style="margin-top:64px; border-top:1px solid rgba(212,162,60,0.18); padding:30px 40px; display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap;">
+    <div style="display:flex; align-items:center; gap:14px;">
+      <img src="project/assets/zenith-logo-wide.png" alt="Zenith Rising" style="height:40px; width:auto; mix-blend-mode:lighten;">
+      <span style="font-family:'Cinzel',serif; font-size:13px; color:#8c867a; letter-spacing:1px;">Forged in war. Bound by brotherhood.</span>
+    </div>
+    <div style="display:flex; gap:26px; font-family:'Chakra Petch',sans-serif; font-size:12px; letter-spacing:2px; color:#7d776c;">
+      <span class="footer-link">DISCORD</span>
+      <span class="footer-link">DOCS</span>
+      <span class="footer-link">TERMS</span>
+      <span>© 2026 ZENITH RISING</span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ─── Zenith Rising · Faction Leaderboard Dashboard ───────────────────────────
+const ZR = {
+  KEY:       'SXYakvQtO32eDnX6',
+  ATK_E:     25,
+  POLL:      60_000,
+  AV_BG:     'repeating-linear-gradient(45deg,#1b1b22 0 4px,#24242c 4px 8px)',
+  PS:        'drugsused,candyused,alcoholused,energydrinkused,criminaloffenses',
+  GYM_STATS: ['gymstrength','gymdefense','gymspeed','gymdexterity'],
+  GYM_SNAP:  'zr_gym_snaps_v1',
+  PS_SNAP:   'zr_ps_snaps_v1',
+  SNAP_MIN:  21600,
+  DELAY:     220,
+};
+
+// ─── App State ────────────────────────────────────────────────────────────────
+const state = {
+  period:      '7d',
+  search:      '',
+  status:      'loading',
+  db:          {},
+  memberCount: null,
+  updated:     null,
+  images:      {},
+  memberNames: [],
+  gymWindowed: false,
+};
+
+let pollTimer = null;
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
+const wait  = ms => new Promise(r => setTimeout(r, ms));
+const nf    = n  => Math.round(+(n) || 0).toLocaleString('en-US');
+const el    = id => document.getElementById(id);
+const qs    = s  => document.querySelector(s);
+const qsa   = s  => document.querySelectorAll(s);
+
+function av(r) {
+  const u = r && r.id != null && state.images[r.id];
+  return u ? `url("${u}") center/cover no-repeat` : ZR.AV_BG;
+}
+
+// ─── API helpers ──────────────────────────────────────────────────────────────
+async function _get(url, p = {}) {
+  const u = new URL(url);
+  u.searchParams.set('key', ZR.KEY);
+  u.searchParams.set('comment', 'ZenithDash');
+  for (const [k, v] of Object.entries(p)) u.searchParams.set(k, String(v));
+  const r = await fetch(u.toString());
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const d = await r.json();
+  if (d && d.error) {
+    const code = d.error && d.error.code ? String(d.error.code) : '?';
+    const msg  = d.error && d.error.error ? String(d.error.error) : 'API error ' + code;
+    throw new Error(msg);
+  }
+  return d;
+}
+
+function _pv(d, f) {
+  if (!d) return 0;
+  const ps = (d.personalstats !== undefined) ? d.personalstats : d;
+  return +(ps && ps[f] != null ? ps[f] : 0) || 0;
+}
+
+async function _fetchPS(uid) {
+  try {
+    return await _get('https://api.torn.com/v2/user/' + uid + '/personalstats', { stat: ZR.PS });
+  } catch(e) { return null; }
+}
+
+// ─── localStorage snapshot helpers ───────────────────────────────────────────
+function snapLoad(key) {
+  try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) { return []; }
+}
+function snapStore(key, ts, data) {
+  try {
+    const snaps = snapLoad(key);
+    const last  = snaps[snaps.length - 1];
+    if (!last || ts - last.ts >= ZR.SNAP_MIN) {
+      snaps.push({ ts, data });
+      if (snaps.length > 250) snaps.splice(0, snaps.length - 250);
+      localStorage.setItem(key, JSON.stringify(snaps));
+    }
+  } catch(e) {}
+}
+function snapFind(key, targetTs) {
+  try {
+    const past = snapLoad(key).filter(s => s.ts <= targetTs + 3600);
+    if (!past.length) return null;
+    return past.reduce((b, s) => Math.abs(s.ts - targetTs) < Math.abs(b.ts - targetTs) ? s : b).data;
+  } catch(e) { return null; }
+}
+
+// ─── Gym Contributors ─────────────────────────────────────────────────────────
+async function loadGymContribs() {
+  const gym = {};
+  for (const s of ZR.GYM_STATS) {
+    try {
+      const d = await _get('https://api.torn.com/v2/faction/contributors', { stat: s });
+      for (const c of (d.contributors || []))
+        if (c && c.id != null) gym[+c.id] = (gym[+c.id] || 0) + (+(c.contributed || 0));
+    } catch(e) {}
+    await wait(ZR.DELAY);
+  }
+  return gym;
+}
+
+// ─── Sample / Fallback Data ───────────────────────────────────────────────────
+const MN = ['marion_stiedemann','shannon_kautzer','billy_mraz','arthur_grimes','bernadette_m','alberta_spencer','leo_ruecker','rudolph_boehm','vella_hartmann','dane_okuneva','cleo_bauch','rylan_fadel','jovani_k','tess_ortiz','greta_lind','odessa_p','knox_k','ramona_l','bo_steuber','cassidy_v','hayden_w','dominic_f','skye_p','lennox_b','cairo_n','evander_o','soleil_r','caspian_t','ren_y','jago_m','fox_c','storm_a','blade_h','raven_k','wolf_j','jade_q','ember_x'];
+const MOCK = MN.map((name, i) => ({
+  id: i + 1, name,
+  atkEnergy:        Math.max(0, (37 - i) * 375),
+  gymEnergy:        Math.max(0, (37 - i) * 38000),
+  total:            Math.max(0, (37 - i) * 38375),
+  drugsused:        Math.max(0, 28 - Math.floor(i * 0.78)),
+  candyused:        Math.max(0, 42 - Math.floor(i * 1.17)),
+  alcoholused:      Math.max(0, 31 - Math.floor(i * 0.86)),
+  energydrinkused:  Math.max(0, 19 - Math.floor(i * 0.53)),
+  criminaloffenses: Math.max(0, 55 - Math.floor(i * 1.5)),
+  statgrowth:       Math.max(0, (37 - i) * 38000),
+}));
+
+// ─── Main Load ────────────────────────────────────────────────────────────────
+async function loadAll() {
+  try {
+    const now  = Math.floor(Date.now() / 1000);
+    const ts7  = now - 7 * 86400;
+    const ts30 = now - 30 * 86400;
+
+    // 1. faction members
+    const md = await _get('https://api.torn.com/v2/faction/members');
+    const members = (Array.isArray(md.members) ? md.members : [])
+      .map(m => ({ id: +m.id, name: m.name }));
+    const ids = new Set(members.map(m => m.id));
+
+    // 2. attacks 30d paginated, split at 7d mark
+    const a7 = {}, a30 = {};
+    let to = now, g = 0, more = true;
+    while (more && g < 30) {
+      const d = await _get('https://api.torn.com/v2/faction/attacks',
+        { limit: 1000, sort: 'DESC', from: ts30, to });
+      const batch = d.attacks || [];
+      for (const a of batch) {
+        const aid = a.attacker && a.attacker.id;
+        if (!aid || !ids.has(+aid)) continue;
+        a30[aid] = (a30[aid] || 0) + 1;
+        if ((a.started || a.ended || 0) >= ts7) a7[aid] = (a7[aid] || 0) + 1;
+      }
+      if (batch.length < 1000) { more = false; }
+      else {
+        const last = batch[batch.length - 1];
+        to = Math.max((last.started || last.ended || ts30) - 1, ts30);
+        if (to <= ts30) more = false;
+      }
+      g++; await wait(ZR.DELAY);
+    }
+
+    // 3. gym contributors + localStorage snapshots
+    const gymCurr = await loadGymContribs();
+    snapStore(ZR.GYM_SNAP, now, gymCurr);
+    const gymBase7  = snapFind(ZR.GYM_SNAP, ts7);
+    const gymBase30 = snapFind(ZR.GYM_SNAP, ts30);
+
+    // 4. personalstats (current only, 37 calls)
+    const cur = {};
+    for (const m of members) {
+      cur[m.id] = await _fetchPS(m.id);
+      await wait(ZR.DELAY);
+    }
+    snapStore(ZR.PS_SNAP, now, cur);
+    const psBase7  = snapFind(ZR.PS_SNAP, ts7);
+    const psBase30 = snapFind(ZR.PS_SNAP, ts30);
+
+    const gymDelta = (id, base) => {
+      const c = gymCurr[id] || 0;
+      return base ? Math.max(0, c - (base[id] || 0)) : c;
+    };
+    const psDelta = (id, base, f) => {
+      const c = _pv(cur[id], f);
+      return (base && base[id]) ? Math.max(0, c - _pv(base[id], f)) : c;
+    };
+
+    const buildRows = (atkMap, gymBase, psBase) =>
+      members.map(m => {
+        const atkE = (atkMap[m.id] || 0) * ZR.ATK_E;
+        const gymE = gymDelta(m.id, gymBase);
+        return {
+          id: m.id, name: m.name,
+          atkEnergy: atkE, gymEnergy: gymE, total: atkE + gymE,
+          drugsused:        psDelta(m.id, psBase, 'drugsused'),
+          candyused:        psDelta(m.id, psBase, 'candyused'),
+          alcoholused:      psDelta(m.id, psBase, 'alcoholused'),
+          energydrinkused:  psDelta(m.id, psBase, 'energydrinkused'),
+          criminaloffenses: psDelta(m.id, psBase, 'criminaloffenses'),
+          statgrowth:       gymE,
+        };
+      }).sort((a, b) => b.total - a.total || b.gymEnergy - a.gymEnergy);
+
+    const db = {
+      '7d':  buildRows(a7,  gymBase7,  psBase7),
+      '30d': buildRows(a30, gymBase30, psBase30),
+    };
+
+    Object.assign(state, {
+      db, status: 'live', memberCount: members.length, updated: now,
+      memberNames: members.map(m => m.name).sort(),
+      gymWindowed: !!(gymBase7),
+    });
+
+    render();
+    loadAvatars(members);
+  } catch(e) {
+    console.error('[ZR] loadAll:', e && (e.message || String(e)));
+    if (state.status === 'loading') {
+      Object.assign(state, { status: 'sample' });
+      render();
+    }
+  }
+}
+
+async function loadAvatars(members) {
+  const imgs = Object.assign({}, state.images);
+  for (let i = 0; i < members.length; i++) {
+    const m = members[i];
+    if (imgs[m.id]) continue;
+    try {
+      const p = await _get('https://api.torn.com/v2/user/' + m.id, { selections: 'profile' });
+      const url = p && p.profile && p.profile.image;
+      if (url) imgs[m.id] = url;
+    } catch(e) {}
+    if ((i + 1) % 5 === 0) {
+      Object.assign(state, { images: Object.assign({}, imgs) });
+      render();
+    }
+    await wait(150);
+  }
+  Object.assign(state, { images: Object.assign({}, imgs) });
+  render();
+}
+
+// ─── Period toggle ────────────────────────────────────────────────────────────
+function setPeriod(p) {
+  state.period = p;
+  const pA = "padding:9px 16px; border-radius:3px; font-family:'Chakra Petch',sans-serif; font-size:12px; letter-spacing:1px; font-weight:700; cursor:pointer; white-space:nowrap; color:#0b0b0e; background:linear-gradient(180deg,#f3d685,#cf9a36); border:1px solid #f3d685;";
+  const pI = "padding:9px 16px; border-radius:3px; font-family:'Chakra Petch',sans-serif; font-size:12px; letter-spacing:1px; font-weight:700; cursor:pointer; white-space:nowrap; color:#9a948a; background:rgba(255,255,255,0.03); border:1px solid rgba(212,162,60,0.25);";
+  el('pill-7d').style.cssText  = p === '7d'  ? pA : pI;
+  el('pill-30d').style.cssText = p === '30d' ? pA : pI;
+  render();
+}
+
+// ─── Search ───────────────────────────────────────────────────────────────────
+const searchInput = el('search-input');
+const suggestions = el('search-suggestions');
+
+searchInput.addEventListener('input', () => {
+  state.search = searchInput.value;
+  updateSuggestions();
+  render();
+});
+
+searchInput.addEventListener('focus', updateSuggestions);
+document.addEventListener('click', e => {
+  if (!e.target.closest('#search-input') && !e.target.closest('#search-suggestions')) {
+    suggestions.style.display = 'none';
+  }
+});
+
+function updateSuggestions() {
+  const q = state.search.toLowerCase().trim();
+  const names = state.memberNames.length ? state.memberNames : MOCK.map(r => r.name);
+  const matches = q ? names.filter(n => n.toLowerCase().startsWith(q)).slice(0, 8) : [];
+  if (!matches.length) { suggestions.style.display = 'none'; return; }
+  suggestions.innerHTML = matches.map(n =>
+    `<div class="sugg-item" style="padding:8px 14px; cursor:pointer; font-family:'Chakra Petch',sans-serif; font-size:13px; color:#d8d2c6; border-bottom:1px solid rgba(255,255,255,0.04);" onmousedown="pickSuggestion('${n.replace(/'/g,"\\'")}')">` +
+    `<span style="color:var(--gold);">${escHtml(n.slice(0, q.length))}</span>${escHtml(n.slice(q.length))}</div>`
+  ).join('');
+  suggestions.style.display = 'block';
+}
+
+function pickSuggestion(name) {
+  searchInput.value = name;
+  state.search = name;
+  suggestions.style.display = 'none';
+  render();
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+function render() {
+  const period     = state.period === '30d' ? '30 days' : '7 days';
+  const periodCaps = state.period === '30d' ? '30 DAYS' : '7 DAYS';
+  const live       = state.db[state.period];
+  const ranked     = (live && live.length) ? live : MOCK;
+  const maxT       = (ranked[0] && ranked[0].total) || 1;
+
+  // status
+  const stMap = {
+    loading: { text: 'SYNCING · TORN API',  color: '#d6b878', dot: '#e8c46a' },
+    live:    { text: 'LIVE · TORN API',     color: '#6cd79a', dot: '#52e08f' },
+    sample:  { text: 'SAMPLE DATA',         color: '#d6b878', dot: '#caa45a' },
+  };
+  const st = stMap[state.status] || stMap.sample;
+  el('status-dot').style.background = st.dot;
+  el('status-text').style.color = st.color;
+  el('status-text').textContent = st.text;
+
+  const heroStatusMap = { loading: 'FACTION DASHBOARD · SYNCING', live: 'FACTION DASHBOARD · LIVE', sample: 'FACTION DASHBOARD · SAMPLE' };
+  el('hero-status').textContent = heroStatusMap[state.status] || 'FACTION DASHBOARD';
+
+  // gym note
+  el('gym-note').textContent = state.gymWindowed
+    ? 'gym stat gains + atk×25 · windowed'
+    : 'gym stat gains (all-time until 7d baseline builds) + atk×25';
+
+  // member count
+  el('stat-members').textContent = state.memberCount != null ? String(state.memberCount) : '—';
+
+  // periods
+  el('hero-period').textContent = period;
+  el('podium-period').textContent = period;
+  el('war-period-caps').textContent = periodCaps;
+  qsa('.period-label').forEach(e => e.textContent = periodCaps);
+
+  // updated
+  const updStr = state.updated
+    ? new Date(state.updated * 1000).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+    : '—';
+  el('war-updated').textContent = `Updated ${updStr} · atk = 25 E`;
+
+  // search filter
+  const q = state.search.toLowerCase();
+  const filtered = ranked
+    .map((r, i) => Object.assign({}, r, { _rank: i + 1 }))
+    .filter(r => !q || r.name.toLowerCase().includes(q));
+
+  // podium
+  const pod = (id, r) => {
+    const av_ = av(r);
+    el(`pod-${id}-av`).style.background = av_;
+    el(`pod-${id}-name`).textContent = r ? r.name : '—';
+    el(`pod-${id}-energy`).textContent = r ? nf(r.total) : '—';
+  };
+  pod('champ',  ranked[0]);
+  pod('silver', ranked[1]);
+  pod('bronze', ranked[2]);
+
+  // war effort rows
+  el('war-rows').innerHTML = filtered.map(r => `
+    <div class="war-row" style="display:grid; grid-template-columns:46px 1fr 130px 130px 150px; gap:10px; align-items:center; padding:13px 22px; border-top:1px solid rgba(255,255,255,0.04);">
+      <span style="font-family:'Cinzel',serif; font-weight:900; font-size:16px; color:#caa45a;">${r._rank}</span>
+      <div style="min-width:0;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span style="width:32px; height:32px; border-radius:50%; border:1px solid rgba(212,162,60,0.4); flex-shrink:0; background:${av(r)};"></span>
+          <span style="font-family:'Chakra Petch',sans-serif; font-size:14px; font-weight:700; color:#ece3d2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escHtml(r.name)}</span>
+        </div>
+        <div style="height:5px; margin-top:8px; border-radius:3px; background:rgba(255,255,255,0.05); overflow:hidden;">
+          <div style="height:100%; width:${Math.max(4, Math.round((r.total / maxT) * 100))}%; background:linear-gradient(90deg, #cf9a36, #f7da88); border-radius:3px;"></div>
+        </div>
+      </div>
+      <span style="text-align:right; font-family:'Rajdhani',sans-serif; font-weight:600; font-size:15px; color:#9fb3df;">${nf(r.gymEnergy)}</span>
+      <span style="text-align:right; font-family:'Rajdhani',sans-serif; font-weight:600; font-size:15px; color:#d6b878;">${nf(r.atkEnergy)}</span>
+      <span style="text-align:right; font-family:'Cinzel',serif; font-weight:700; font-size:18px; color:var(--gold);">${nf(r.total)}</span>
+    </div>`).join('');
+
+  // category boards
+  const cats = [
+    { title: 'Junkie',          sub: 'Most drugs used',         unit: 'DRUGS',    key: 'drugsused'        },
+    { title: 'Sweet Tooth',     sub: 'Most candy used',         unit: 'CANDY',    key: 'candyused'        },
+    { title: 'Barfly',          sub: 'Most alcohol consumed',   unit: 'DRINKS',   key: 'alcoholused'      },
+    { title: 'Overcaffeinated', sub: 'Most energy drinks used', unit: 'E.DRINKS', key: 'energydrinkused'  },
+    { title: 'Kingpin',         sub: 'Most crimes committed',   unit: 'CRIMES',   key: 'criminaloffenses' },
+    { title: 'Stat Grinder',    sub: 'Battle stats growth',     unit: 'GAINED',   key: 'statgrowth'       },
+  ];
+
+  el('cat-grid').innerHTML = cats.map(c => {
+    const sorted = ranked.slice().sort((a, b) => (b[c.key] || 0) - (a[c.key] || 0));
+    const top  = sorted[0];
+    const rest = sorted.slice(1, 5);
+    const topAv = top ? av(top) : ZR.AV_BG;
+
+    const restRows = rest.map((r, i) => `
+      <div class="cat-row" style="display:flex; align-items:center; gap:13px; padding:11px 18px; border-top:1px solid rgba(255,255,255,0.04);">
+        <span style="width:26px; font-family:'Cinzel',serif; font-weight:700; font-size:13px; color:#7d776c;">${i + 2}</span>
+        <span style="width:22px; height:22px; border-radius:50%; border:1px solid rgba(255,255,255,0.12); background:${av(r)}; flex-shrink:0;"></span>
+        <span style="flex:1; font-family:'Chakra Petch',sans-serif; font-size:13px; color:#bbb4a7;">${escHtml(r.name)}</span>
+        <span style="font-family:'Rajdhani',sans-serif; font-weight:600; font-size:15px; color:#d8d2c6;">${nf(r[c.key] || 0)}</span>
+      </div>`).join('');
+
+    return `
+      <div class="cat-card" style="border:1px solid rgba(212,162,60,0.2); border-radius:5px; background:linear-gradient(180deg, #131218, #0e0d12); overflow:hidden;">
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:15px 18px; border-bottom:1px solid rgba(212,162,60,0.18); background:rgba(212,162,60,0.05);">
+          <div style="display:flex; align-items:baseline; gap:10px;">
+            <span style="font-family:'Cinzel',serif; font-weight:700; font-size:19px; color:#ecd9a8;">${escHtml(c.title)}</span>
+            <span style="font-size:11px; letter-spacing:1px; color:#7d776c;">${escHtml(c.sub)}</span>
+          </div>
+          <span style="font-family:'Chakra Petch',sans-serif; font-size:10px; letter-spacing:1px; color:#7d776c;">${c.unit}</span>
+        </div>
+        ${top ? `
+        <div style="display:flex; align-items:center; gap:13px; padding:12px 18px; background:linear-gradient(90deg, rgba(212,162,60,0.16), rgba(212,162,60,0.03)); border-left:3px solid var(--gold);">
+          <span style="width:26px; font-family:'Cinzel',serif; font-weight:900; font-size:15px; color:var(--gold);">1</span>
+          <span style="width:22px; height:22px; border-radius:50%; border:1px solid rgba(212,162,60,0.6); background:${topAv}; flex-shrink:0; box-shadow:0 0 10px rgba(232,196,106,0.25);"></span>
+          <span style="flex:1; font-family:'Chakra Petch',sans-serif; font-size:14px; font-weight:700; color:#f0e6cf;">${escHtml(top.name)}</span>
+          <span style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:17px; color:var(--gold);">${nf(top[c.key] || 0)}</span>
+        </div>` : ''}
+        ${restRows}
+      </div>`;
+  }).join('');
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+render(); // show skeleton immediately
+loadAll();
+pollTimer = setInterval(loadAll, ZR.POLL);
+</script>
+</body>
+</html>

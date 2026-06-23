@@ -250,17 +250,24 @@
 <script>
 // ─── Zenith Rising · Faction Leaderboard Dashboard ───────────────────────────
 const ZR = {
-  KEY:       'SXYakvQtO32eDnX6',
-  ATK_E:     25,
-  POLL:      60_000,
-  AV_BG:     'repeating-linear-gradient(45deg,#1b1b22 0 4px,#24242c 4px 8px)',
-  PS:        'drugsused,candyused,alcoholused,energydrinkused,criminaloffenses',
-  GYM_STATS: ['gymstrength','gymdefense','gymspeed','gymdexterity'],
-  GYM_SNAP:  'zr_gym_snaps_v1',
-  PS_SNAP:   'zr_ps_snaps_v1',
-  SNAP_MIN:  21600,
-  DELAY:     220,
+  KEY:              'SXYakvQtO32eDnX6',
+  ATK_E:            25,
+  POLL:             120_000,
+  AV_BG:            'repeating-linear-gradient(45deg,#1b1b22 0 4px,#24242c 4px 8px)',
+  DELAY:            700,
+  SNAPS_KEY:        'zr_snaps_v3',
+  HISTORY_KEY:      'zr_history_v3',
+  MISC_KEY:         'zr_misc_v3',
+  GYM_BASELINE_KEY: 'zr_gym_baseline_v3',
+  ATK_TS_KEY:       'zr_atk_ts_v3',
+  PRUNE_DAYS:       35,
 };
+
+// mirrors db.js constants exactly
+const SUSPECT_THRESHOLD = { xanax:2, od:2, candy:25, energydrink:25, alcohol:25, trips:2 };
+const INDIVIDUAL_CAP    = { xanax:5, od:5, candy:150, energydrink:50, alcohol:50, trips:3 };
+const MAX_SNAP_GAP_MS   = 6 * 60 * 1000;
+const GYM_DELTA_MAX     = 1500;
 
 // ─── App State ────────────────────────────────────────────────────────────────
 const state = {
@@ -272,87 +279,303 @@ const state = {
   updated:     null,
   images:      {},
   memberNames: [],
-  gymWindowed: false,
 };
 
 let pollTimer = null;
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
-const wait  = ms => new Promise(r => setTimeout(r, ms));
-const nf    = n  => Math.round(+(n) || 0).toLocaleString('en-US');
-const el    = id => document.getElementById(id);
-const qs    = s  => document.querySelector(s);
-const qsa   = s  => document.querySelectorAll(s);
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const nf   = n  => Math.round(+(n) || 0).toLocaleString('en-US');
+const el   = id => document.getElementById(id);
+const qsa  = s  => document.querySelectorAll(s);
 
 function av(r) {
   const u = r && r.id != null && state.images[r.id];
   return u ? `url("${u}") center/cover no-repeat` : ZR.AV_BG;
 }
 
-// ─── API helpers ──────────────────────────────────────────────────────────────
-async function _get(url, p = {}) {
-  const u = new URL(url);
-  u.searchParams.set('key', ZR.KEY);
-  u.searchParams.set('comment', 'ZenithDash');
-  for (const [k, v] of Object.entries(p)) u.searchParams.set(k, String(v));
-  const r = await fetch(u.toString());
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  const d = await r.json();
-  if (d && d.error) {
-    const code = d.error && d.error.code ? String(d.error.code) : '?';
-    const msg  = d.error && d.error.error ? String(d.error.error) : 'API error ' + code;
-    throw new Error(msg);
-  }
+// ─── localStorage helpers ─────────────────────────────────────────────────────
+function lsGet(key, fallback) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
+}
+function lsSet(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
+
+const loadSnapshots   = () => lsGet(ZR.SNAPS_KEY,        {});
+const saveSnapshots   = v  => lsSet(ZR.SNAPS_KEY, v);
+const loadHistory     = () => lsGet(ZR.HISTORY_KEY,       []);
+const saveHistory     = v  => lsSet(ZR.HISTORY_KEY, v);
+const loadMiscHistory = () => lsGet(ZR.MISC_KEY,          []);
+const saveMiscHistory = v  => lsSet(ZR.MISC_KEY, v);
+const loadGymBaseline = () => lsGet(ZR.GYM_BASELINE_KEY,  {});
+const saveGymBaseline = v  => lsSet(ZR.GYM_BASELINE_KEY,  v);
+const getAtkTs        = () => lsGet(ZR.ATK_TS_KEY,        0);
+const saveAtkTs       = v  => lsSet(ZR.ATK_TS_KEY,        v);
+
+// ─── API ──────────────────────────────────────────────────────────────────────
+async function apiGet(url) {
+  const res = await fetch(url, { headers: { Authorization: `ApiKey ${ZR.KEY}` } });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const d = await res.json();
+  if (d && d.error) throw new Error(d.error.error || 'API error');
   return d;
 }
 
-function _pv(d, f) {
-  if (!d) return 0;
-  const ps = (d.personalstats !== undefined) ? d.personalstats : d;
-  return +(ps && ps[f] != null ? ps[f] : 0) || 0;
+// ─── fetchAllMembers — mirrors bot's fetchAllMembers exactly ─────────────────
+async function fetchContributorStat(stat) {
+  try {
+    const d = await apiGet(
+      `https://api.torn.com/v2/faction/contributors?stat=${stat}&cat=current&comment=ZenithDash`
+    );
+    return d.contributors || [];
+  } catch { return null; }
 }
 
-async function _fetchPS(uid) {
-  try {
-    return await _get('https://api.torn.com/v2/user/' + uid + '/personalstats', { stat: ZR.PS });
-  } catch(e) { return null; }
-}
-
-// ─── localStorage snapshot helpers ───────────────────────────────────────────
-function snapLoad(key) {
-  try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) { return []; }
-}
-function snapStore(key, ts, data) {
-  try {
-    const snaps = snapLoad(key);
-    const last  = snaps[snaps.length - 1];
-    if (!last || ts - last.ts >= ZR.SNAP_MIN) {
-      snaps.push({ ts, data });
-      if (snaps.length > 250) snaps.splice(0, snaps.length - 250);
-      localStorage.setItem(key, JSON.stringify(snaps));
-    }
-  } catch(e) {}
-}
-function snapFind(key, targetTs) {
-  try {
-    const past = snapLoad(key).filter(s => s.ts <= targetTs + 3600);
-    if (!past.length) return null;
-    return past.reduce((b, s) => Math.abs(s.ts - targetTs) < Math.abs(b.ts - targetTs) ? s : b).data;
-  } catch(e) { return null; }
-}
-
-// ─── Gym Contributors ─────────────────────────────────────────────────────────
-async function loadGymContribs() {
-  const gym = {};
-  for (const s of ZR.GYM_STATS) {
-    try {
-      const d = await _get('https://api.torn.com/v2/faction/contributors', { stat: s });
-      for (const c of (d.contributors || []))
-        if (c && c.id != null) gym[+c.id] = (gym[+c.id] || 0) + (+(c.contributed || 0));
-    } catch(e) {}
+async function fetchAllMembers() {
+  const stats = [
+    'gymstrength','gymdefense','gymspeed','gymdexterity',
+    'drugsused','drugoverdoses','candyused','criminaloffences',
+    'energydrinkused','alcoholused','traveltimes'
+  ];
+  const responses = {};
+  for (const s of stats) {
+    responses[s] = await fetchContributorStat(s);
     await wait(ZR.DELAY);
   }
-  return gym;
+
+  // abort if all gym calls failed
+  if (!responses.gymstrength && !responses.gymdefense && !responses.gymspeed && !responses.gymdexterity) {
+    return null;
+  }
+
+  const members = {};
+  const ensure = (id, name) => {
+    const pid = String(id);
+    if (!members[pid]) members[pid] = { id: pid, name, gym:0, xanax:0, overdoses:0, candy:0, crimes:0, energydrink:0, alcohol:0, trips:0 };
+    if (name) members[pid].name = name;
+    return members[pid];
+  };
+
+  for (const s of ['gymstrength','gymdefense','gymspeed','gymdexterity'])
+    for (const c of (responses[s] || [])) ensure(c.id, c.username).gym += c.value || 0;
+  for (const c of (responses.drugsused        || [])) ensure(c.id, c.username).xanax      += c.value || 0;
+  for (const c of (responses.drugoverdoses    || [])) ensure(c.id, c.username).overdoses   += c.value || 0;
+  for (const c of (responses.candyused        || [])) ensure(c.id, c.username).candy       += c.value || 0;
+  for (const c of (responses.criminaloffences || [])) ensure(c.id, c.username).crimes      += c.value || 0;
+  for (const c of (responses.energydrinkused  || [])) ensure(c.id, c.username).energydrink += c.value || 0;
+  for (const c of (responses.alcoholused      || [])) ensure(c.id, c.username).alcohol     += c.value || 0;
+  for (const c of (responses.traveltimes      || [])) ensure(c.id, c.username).trips       += c.value || 0;
+
+  return Object.values(members);
+}
+
+// ─── pollAttacks — credits 25E per faction attack to member history ───────────
+async function pollAttacks(knownPids) {
+  const lastTs = getAtkTs();
+  const fromSec = Math.floor(lastTs / 1000);
+  const knownSet = new Set(knownPids.map(String));
+  try {
+    const d = await apiGet(
+      `https://api.torn.com/v2/faction/attacks?limit=1000&sort=DESC&from=${fromSec}&comment=ZenithDash`
+    );
+    const attacks = d.attacks || [];
+    const byMember = {};
+    let maxTs = lastTs;
+    for (const atk of attacks) {
+      const ts = (atk.ended || atk.started || 0) * 1000;
+      if (ts <= lastTs) continue;
+      if (ts > maxTs) maxTs = ts;
+      const attId = atk.attacker?.id;
+      if (!attId || !knownSet.has(String(attId))) continue;
+      const pid = String(attId);
+      if (!byMember[pid]) byMember[pid] = { name: atk.attacker?.name || pid, energy: 0 };
+      byMember[pid].energy += 25;
+    }
+    if (Object.keys(byMember).length) {
+      const history = loadHistory();
+      const now = Date.now();
+      for (const [pid, data] of Object.entries(byMember))
+        if (data.energy > 0)
+          history.push({ player_id: pid, name: data.name, gym_energy: 0, attack_energy: data.energy, recorded_at: now });
+      saveHistory(history);
+    }
+    if (maxTs > lastTs) saveAtkTs(maxTs);
+  } catch(e) { console.warn('[ZR] Attack poll:', e?.message); }
+}
+
+// ─── processPoll — mirrors bot's processPoll from db.js ───────────────────────
+function processPoll(members) {
+  const now = Date.now();
+  const snapshots = loadSnapshots();
+
+  // remove ex-members
+  const currentPids = new Set(members.map(m => String(m.id)));
+  for (const pid of Object.keys(snapshots))
+    if (!currentPids.has(pid)) delete snapshots[pid];
+
+  // PASS 1: raw deltas
+  const raw = [];
+  for (const m of members) {
+    const pid = String(m.id);
+    const prev = snapshots[pid];
+    if (!prev) {
+      snapshots[pid] = {
+        name: m.name, gym: m.gym, xanax: m.xanax, overdoses: m.overdoses,
+        candy: m.candy, crimes: m.crimes||0, energydrink: m.energydrink||0,
+        alcohol: m.alcohol||0, trips: m.trips||0, recorded_at: now
+      };
+      continue;
+    }
+    const safeGym = Number.isFinite(m.gym) ? m.gym : prev.gym;
+    const rawGymDelta = Math.max(0, safeGym - prev.gym);
+    const ageMs = now - (prev.recorded_at || 0);
+    const gymDelta = (rawGymDelta > GYM_DELTA_MAX || ageMs > MAX_SNAP_GAP_MS) ? 0 : rawGymDelta;
+    raw.push({
+      pid, m, prev, gymDelta,
+      xanax:       Math.max(0, (Number.isFinite(m.xanax)        ? m.xanax        : prev.xanax)        - prev.xanax),
+      od:          Math.max(0, (Number.isFinite(m.overdoses)    ? m.overdoses    : prev.overdoses)    - prev.overdoses),
+      candy:       Math.max(0, (Number.isFinite(m.candy)        ? m.candy        : prev.candy)        - prev.candy),
+      crimes:      Math.max(0, (Number.isFinite(m.crimes)       ? m.crimes       : (prev.crimes||0))  - (prev.crimes||0)),
+      energydrink: Math.max(0, (Number.isFinite(m.energydrink)  ? m.energydrink  : (prev.energydrink||0)) - (prev.energydrink||0)),
+      alcohol:     Math.max(0, (Number.isFinite(m.alcohol)      ? m.alcohol      : (prev.alcohol||0)) - (prev.alcohol||0)),
+      trips:       Math.max(0, (Number.isFinite(m.trips)        ? m.trips        : (prev.trips||0))   - (prev.trips||0)),
+    });
+  }
+
+  // PASS 2: mass-spike detection (Torn daily rollover glitch guard)
+  const massSpikeFields = new Set();
+  for (const field of Object.keys(SUSPECT_THRESHOLD)) {
+    if (raw.filter(r => r[field] > SUSPECT_THRESHOLD[field]).length >= 3)
+      massSpikeFields.add(field);
+  }
+
+  // PASS 3: apply deltas with caps
+  const history     = loadHistory();
+  const miscHistory = loadMiscHistory();
+
+  for (const r of raw) {
+    const { pid, m, prev, gymDelta } = r;
+    const finalize = f => massSpikeFields.has(f) ? 0 : (r[f] > INDIVIDUAL_CAP[f] ? 0 : r[f]);
+
+    const xanaxDelta      = finalize('xanax');
+    const odDelta         = finalize('od');
+    const candyDelta      = finalize('candy');
+    const crimesDelta     = r.crimes > 100 ? 0 : r.crimes; // OC payouts can be large legitimately
+    const energyDrinkDelta= finalize('energydrink');
+    const alcoholDelta    = finalize('alcohol');
+    const tripsDelta      = finalize('trips');
+
+    if (gymDelta > 0)
+      history.push({ player_id: pid, name: m.name, gym_energy: gymDelta, attack_energy: 0, recorded_at: now });
+
+    if (xanaxDelta||odDelta||candyDelta||crimesDelta||energyDrinkDelta||alcoholDelta||tripsDelta)
+      miscHistory.push({ player_id: pid, name: m.name, xanax: xanaxDelta, overdoses: odDelta, candy: candyDelta, crimes: crimesDelta, energydrink: energyDrinkDelta, alcohol: alcoholDelta, trips: tripsDelta, recorded_at: now });
+
+    snapshots[pid] = {
+      name: m.name,
+      gym:        Number.isFinite(m.gym)        ? m.gym        : prev.gym,
+      xanax:      Number.isFinite(m.xanax)      ? m.xanax      : prev.xanax,
+      overdoses:  Number.isFinite(m.overdoses)  ? m.overdoses  : prev.overdoses,
+      candy:      Number.isFinite(m.candy)      ? m.candy      : prev.candy,
+      crimes:     Number.isFinite(m.crimes)     ? m.crimes     : (prev.crimes||0),
+      energydrink:Number.isFinite(m.energydrink)? m.energydrink: (prev.energydrink||0),
+      alcohol:    Number.isFinite(m.alcohol)    ? m.alcohol    : (prev.alcohol||0),
+      trips:      Number.isFinite(m.trips)      ? m.trips      : (prev.trips||0),
+      recorded_at: now
+    };
+  }
+
+  // prune old entries
+  const cutoff = now - ZR.PRUNE_DAYS * 86400000;
+  saveSnapshots(snapshots);
+  saveHistory(history.filter(h => h.recorded_at >= cutoff));
+  saveMiscHistory(miscHistory.filter(h => h.recorded_at >= cutoff));
+
+  return snapshots;
+}
+
+// ─── Energy + Misc summaries — mirrors db.js getEnergySummary / getMiscSummary ─
+function getEnergySummary(days) {
+  const cutoff = Date.now() - days * 86400000;
+  const snaps = loadSnapshots();
+  const map = {};
+  for (const h of loadHistory()) {
+    if (h.recorded_at < cutoff) continue;
+    const { player_id: pid, name } = h;
+    if (!map[pid]) map[pid] = { player_id: pid, name, gym_energy: 0, attack_energy: 0, total_energy: 0 };
+    map[pid].gym_energy    += h.gym_energy;
+    map[pid].attack_energy += h.attack_energy;
+    map[pid].total_energy  += h.gym_energy + h.attack_energy;
+    map[pid].name = name;
+  }
+  for (const [pid, s] of Object.entries(snaps))
+    if (!map[pid]) map[pid] = { player_id: pid, name: s.name, gym_energy: 0, attack_energy: 0, total_energy: 0 };
+  const currentIds = new Set(Object.keys(snaps));
+  return Object.values(map).filter(r => currentIds.has(String(r.player_id))).sort((a,b) => b.total_energy - a.total_energy);
+}
+
+function getMiscSummary(days) {
+  const cutoff = Date.now() - days * 86400000;
+  const snaps = loadSnapshots();
+  const map = {};
+  for (const h of loadMiscHistory()) {
+    if (h.recorded_at < cutoff) continue;
+    const pid = h.player_id;
+    if (!map[pid]) map[pid] = { player_id: pid, name: h.name, xanax:0, overdoses:0, candy:0, crimes:0, energydrink:0, alcohol:0, trips:0 };
+    map[pid].xanax       += h.xanax;
+    map[pid].overdoses   += h.overdoses;
+    map[pid].candy       += h.candy;
+    map[pid].crimes      += h.crimes||0;
+    map[pid].energydrink += h.energydrink||0;
+    map[pid].alcohol     += h.alcohol||0;
+    map[pid].trips       += h.trips||0;
+    map[pid].name = h.name;
+  }
+  const currentIds = new Set(Object.keys(snaps));
+  return Object.values(map).filter(r => currentIds.has(String(r.player_id)));
+}
+
+// ─── Weekly gym baseline — refreshed once per week, powers Stat Grinder % ────
+function maybeRefreshGymBaseline(snapshots) {
+  const stored = loadGymBaseline();
+  const weekMs = 7 * 86400000;
+  if (stored._ts && Date.now() - stored._ts < weekMs) return;
+  const baseline = { _ts: Date.now() };
+  for (const [pid, s] of Object.entries(snapshots))
+    if (Number.isFinite(s.gym)) baseline[pid] = { name: s.name, gym: s.gym };
+  saveGymBaseline(baseline);
+}
+
+// ─── Build display rows for a given day window ────────────────────────────────
+function buildRows(days) {
+  const energy  = getEnergySummary(days);
+  const misc    = getMiscSummary(days);
+  const snaps   = loadSnapshots();
+  const baseline= loadGymBaseline();
+  const miscMap = {};
+  for (const m of misc) miscMap[m.player_id] = m;
+
+  return energy.map(r => {
+    const m   = miscMap[r.player_id] || {};
+    const snap = snaps[r.player_id];
+    let statgrowthPct = 0;
+    const bl = baseline[r.player_id];
+    if (bl?.gym > 0 && snap?.gym > bl.gym)
+      statgrowthPct = ((snap.gym - bl.gym) / bl.gym) * 100;
+    return {
+      id: r.player_id, name: r.name,
+      atkEnergy:        r.attack_energy,
+      gymEnergy:        r.gym_energy,
+      total:            r.total_energy,
+      drugsused:        m.xanax      || 0,
+      candyused:        m.candy      || 0,
+      alcoholused:      m.alcohol    || 0,
+      energydrinkused:  m.energydrink|| 0,
+      criminaloffenses: m.crimes     || 0,
+      overdoses:        m.overdoses  || 0,
+      trips:            m.trips      || 0,
+      statgrowth:       statgrowthPct,
+    };
+  }).sort((a,b) => b.total - a.total || b.gymEnergy - a.gymEnergy);
 }
 
 // ─── Sample / Fallback Data ───────────────────────────────────────────────────
@@ -367,124 +590,50 @@ const MOCK = MN.map((name, i) => ({
   alcoholused:      Math.max(0, 31 - Math.floor(i * 0.86)),
   energydrinkused:  Math.max(0, 19 - Math.floor(i * 0.53)),
   criminaloffenses: Math.max(0, 55 - Math.floor(i * 1.5)),
-  statgrowth:       Math.max(0, (37 - i) * 38000),
+  overdoses:        Math.max(0,  8 - Math.floor(i * 0.22)),
+  trips:            Math.max(0, 12 - Math.floor(i * 0.33)),
+  statgrowth:       Math.max(0, (3.5 - i * 0.1)),
 }));
 
 // ─── Main Load ────────────────────────────────────────────────────────────────
 async function loadAll() {
   try {
-    const now  = Math.floor(Date.now() / 1000);
-    const ts7  = now - 7 * 86400;
-    const ts30 = now - 30 * 86400;
+    const members = await fetchAllMembers();
+    if (!members) throw new Error('All gym stat fetches failed');
 
-    // 1. faction members
-    const md = await _get('https://api.torn.com/v2/faction/members');
-    const members = (Array.isArray(md.members) ? md.members : [])
-      .map(m => ({ id: +m.id, name: m.name }));
-    const ids = new Set(members.map(m => m.id));
+    const snapshots = processPoll(members);
+    await pollAttacks(Object.keys(snapshots));
+    maybeRefreshGymBaseline(snapshots);
 
-    // 2. attacks 30d paginated, split at 7d mark
-    const a7 = {}, a30 = {};
-    let to = now, g = 0, more = true;
-    while (more && g < 30) {
-      const d = await _get('https://api.torn.com/v2/faction/attacks',
-        { limit: 1000, sort: 'DESC', from: ts30, to });
-      const batch = d.attacks || [];
-      for (const a of batch) {
-        const aid = a.attacker && a.attacker.id;
-        if (!aid || !ids.has(+aid)) continue;
-        a30[aid] = (a30[aid] || 0) + 1;
-        if ((a.started || a.ended || 0) >= ts7) a7[aid] = (a7[aid] || 0) + 1;
-      }
-      if (batch.length < 1000) { more = false; }
-      else {
-        const last = batch[batch.length - 1];
-        to = Math.max((last.started || last.ended || ts30) - 1, ts30);
-        if (to <= ts30) more = false;
-      }
-      g++; await wait(ZR.DELAY);
-    }
-
-    // 3. gym contributors + localStorage snapshots
-    const gymCurr = await loadGymContribs();
-    snapStore(ZR.GYM_SNAP, now, gymCurr);
-    const gymBase7  = snapFind(ZR.GYM_SNAP, ts7);
-    const gymBase30 = snapFind(ZR.GYM_SNAP, ts30);
-
-    // 4. personalstats (current only, 37 calls)
-    const cur = {};
-    for (const m of members) {
-      cur[m.id] = await _fetchPS(m.id);
-      await wait(ZR.DELAY);
-    }
-    snapStore(ZR.PS_SNAP, now, cur);
-    const psBase7  = snapFind(ZR.PS_SNAP, ts7);
-    const psBase30 = snapFind(ZR.PS_SNAP, ts30);
-
-    const gymDelta = (id, base) => {
-      const c = gymCurr[id] || 0;
-      return base ? Math.max(0, c - (base[id] || 0)) : c;
-    };
-    const psDelta = (id, base, f) => {
-      const c = _pv(cur[id], f);
-      return (base && base[id]) ? Math.max(0, c - _pv(base[id], f)) : c;
-    };
-
-    const buildRows = (atkMap, gymBase, psBase) =>
-      members.map(m => {
-        const atkE = (atkMap[m.id] || 0) * ZR.ATK_E;
-        const gymE = gymDelta(m.id, gymBase);
-        return {
-          id: m.id, name: m.name,
-          atkEnergy: atkE, gymEnergy: gymE, total: atkE + gymE,
-          drugsused:        psDelta(m.id, psBase, 'drugsused'),
-          candyused:        psDelta(m.id, psBase, 'candyused'),
-          alcoholused:      psDelta(m.id, psBase, 'alcoholused'),
-          energydrinkused:  psDelta(m.id, psBase, 'energydrinkused'),
-          criminaloffenses: psDelta(m.id, psBase, 'criminaloffenses'),
-          statgrowth:       gymE,
-        };
-      }).sort((a, b) => b.total - a.total || b.gymEnergy - a.gymEnergy);
-
-    const db = {
-      '7d':  buildRows(a7,  gymBase7,  psBase7),
-      '30d': buildRows(a30, gymBase30, psBase30),
-    };
+    const now = Math.floor(Date.now() / 1000);
+    const db  = { '7d': buildRows(7), '30d': buildRows(30) };
 
     Object.assign(state, {
       db, status: 'live', memberCount: members.length, updated: now,
       memberNames: members.map(m => m.name).sort(),
-      gymWindowed: !!(gymBase7),
     });
-
     render();
     loadAvatars(members);
   } catch(e) {
-    console.error('[ZR] loadAll:', e && (e.message || String(e)));
-    if (state.status === 'loading') {
-      Object.assign(state, { status: 'sample' });
-      render();
-    }
+    console.error('[ZR] loadAll:', e?.message || String(e));
+    if (state.status === 'loading') { Object.assign(state, { status: 'sample' }); render(); }
   }
 }
 
 async function loadAvatars(members) {
-  const imgs = Object.assign({}, state.images);
+  const imgs = { ...state.images };
   for (let i = 0; i < members.length; i++) {
     const m = members[i];
     if (imgs[m.id]) continue;
     try {
-      const p = await _get('https://api.torn.com/v2/user/' + m.id, { selections: 'profile' });
-      const url = p && p.profile && p.profile.image;
+      const p = await apiGet(`https://api.torn.com/v2/user/${m.id}?selections=profile&comment=ZenithDash`);
+      const url = p?.profile?.image;
       if (url) imgs[m.id] = url;
-    } catch(e) {}
-    if ((i + 1) % 5 === 0) {
-      Object.assign(state, { images: Object.assign({}, imgs) });
-      render();
-    }
+    } catch {}
+    if ((i + 1) % 5 === 0) { Object.assign(state, { images: { ...imgs } }); render(); }
     await wait(150);
   }
-  Object.assign(state, { images: Object.assign({}, imgs) });
+  Object.assign(state, { images: { ...imgs } });
   render();
 }
 
@@ -561,9 +710,7 @@ function render() {
   el('hero-status').textContent = heroStatusMap[state.status] || 'FACTION DASHBOARD';
 
   // gym note
-  el('gym-note').textContent = state.gymWindowed
-    ? 'gym stat gains + atk×25 · windowed'
-    : 'gym stat gains (all-time until 7d baseline builds) + atk×25';
+  el('gym-note').textContent = 'gym stat gains (contributors) + atk energy · updated every 2 min';
 
   // member count
   el('stat-members').textContent = state.memberCount != null ? String(state.memberCount) : '—';
@@ -617,26 +764,27 @@ function render() {
 
   // category boards
   const cats = [
-    { title: 'Junkie',          sub: 'Most drugs used',         unit: 'DRUGS',    key: 'drugsused'        },
-    { title: 'Sweet Tooth',     sub: 'Most candy used',         unit: 'CANDY',    key: 'candyused'        },
-    { title: 'Barfly',          sub: 'Most alcohol consumed',   unit: 'DRINKS',   key: 'alcoholused'      },
-    { title: 'Overcaffeinated', sub: 'Most energy drinks used', unit: 'E.DRINKS', key: 'energydrinkused'  },
-    { title: 'Kingpin',         sub: 'Most crimes committed',   unit: 'CRIMES',   key: 'criminaloffenses' },
-    { title: 'Stat Grinder',    sub: 'Battle stats growth',     unit: 'GAINED',   key: 'statgrowth'       },
+    { title: 'Junkie',          sub: 'Most drugs used',             unit: 'DRUGS',    key: 'drugsused',        fmt: null },
+    { title: 'Sweet Tooth',     sub: 'Most candy used',             unit: 'CANDY',    key: 'candyused',        fmt: null },
+    { title: 'Barfly',          sub: 'Most alcohol consumed',       unit: 'DRINKS',   key: 'alcoholused',      fmt: null },
+    { title: 'Overcaffeinated', sub: 'Most energy drinks used',     unit: 'E.DRINKS', key: 'energydrinkused',  fmt: null },
+    { title: 'Kingpin',         sub: 'Most crimes committed',       unit: 'CRIMES',   key: 'criminaloffenses', fmt: null },
+    { title: 'Stat Grinder',    sub: 'Gym % growth vs last week',   unit: '%',        key: 'statgrowth',       fmt: v => v > 0 ? '+' + v.toFixed(2) + '%' : '—' },
   ];
 
   el('cat-grid').innerHTML = cats.map(c => {
     const sorted = ranked.slice().sort((a, b) => (b[c.key] || 0) - (a[c.key] || 0));
-    const top  = sorted[0];
-    const rest = sorted.slice(1, 5);
+    const top  = sorted.filter(r => (r[c.key] || 0) > 0)[0] || sorted[0];
+    const rest = sorted.filter(r => r !== top).slice(0, 4);
     const topAv = top ? av(top) : ZR.AV_BG;
+    const fmtVal = (r) => c.fmt ? c.fmt(r[c.key] || 0) : nf(r[c.key] || 0);
 
     const restRows = rest.map((r, i) => `
       <div class="cat-row" style="display:flex; align-items:center; gap:13px; padding:11px 18px; border-top:1px solid rgba(255,255,255,0.04);">
         <span style="width:26px; font-family:'Cinzel',serif; font-weight:700; font-size:13px; color:#7d776c;">${i + 2}</span>
         <span style="width:22px; height:22px; border-radius:50%; border:1px solid rgba(255,255,255,0.12); background:${av(r)}; flex-shrink:0;"></span>
         <span style="flex:1; font-family:'Chakra Petch',sans-serif; font-size:13px; color:#bbb4a7;">${escHtml(r.name)}</span>
-        <span style="font-family:'Rajdhani',sans-serif; font-weight:600; font-size:15px; color:#d8d2c6;">${nf(r[c.key] || 0)}</span>
+        <span style="font-family:'Rajdhani',sans-serif; font-weight:600; font-size:15px; color:#d8d2c6;">${fmtVal(r)}</span>
       </div>`).join('');
 
     return `
@@ -653,7 +801,7 @@ function render() {
           <span style="width:26px; font-family:'Cinzel',serif; font-weight:900; font-size:15px; color:var(--gold);">1</span>
           <span style="width:22px; height:22px; border-radius:50%; border:1px solid rgba(212,162,60,0.6); background:${topAv}; flex-shrink:0; box-shadow:0 0 10px rgba(232,196,106,0.25);"></span>
           <span style="flex:1; font-family:'Chakra Petch',sans-serif; font-size:14px; font-weight:700; color:#f0e6cf;">${escHtml(top.name)}</span>
-          <span style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:17px; color:var(--gold);">${nf(top[c.key] || 0)}</span>
+          <span style="font-family:'Rajdhani',sans-serif; font-weight:700; font-size:17px; color:var(--gold);">${fmtVal(top)}</span>
         </div>` : ''}
         ${restRows}
       </div>`;

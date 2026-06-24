@@ -255,19 +255,10 @@ const ZR = {
   POLL:             120_000,
   AV_BG:            'repeating-linear-gradient(45deg,#1b1b22 0 4px,#24242c 4px 8px)',
   DELAY:            700,
-  SNAPS_KEY:        'zr_snaps_v3',
-  HISTORY_KEY:      'zr_history_v3',
-  MISC_KEY:         'zr_misc_v3',
-  GYM_BASELINE_KEY: 'zr_gym_baseline_v3',
-  ATK_TS_KEY:       'zr_atk_ts_v3',
-  PRUNE_DAYS:       35,
+  SNAP_KEY:         'zr_contribs_v4',
+  ATK_KEY:          'zr_atk_v4',
+  SNAP_MIN:         21600,
 };
-
-// mirrors db.js constants exactly
-const SUSPECT_THRESHOLD = { xanax:2, od:2, candy:25, energydrink:25, alcohol:25, trips:2 };
-const INDIVIDUAL_CAP    = { xanax:5, od:5, candy:150, energydrink:50, alcohol:50, trips:3 };
-const MAX_SNAP_GAP_MS   = 6 * 60 * 1000;
-const GYM_DELTA_MAX     = 1500;
 
 // ─── App State ────────────────────────────────────────────────────────────────
 const state = {
@@ -279,6 +270,7 @@ const state = {
   updated:     null,
   images:      {},
   memberNames: [],
+  windowed:    false,
 };
 
 let pollTimer = null;
@@ -294,22 +286,28 @@ function av(r) {
   return u ? `url("${u}") center/cover no-repeat` : ZR.AV_BG;
 }
 
-// ─── localStorage helpers ─────────────────────────────────────────────────────
-function lsGet(key, fallback) {
-  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
+// ─── localStorage snapshot helpers ───────────────────────────────────────────
+function snapLoad(key) {
+  try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
 }
-function lsSet(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
-
-const loadSnapshots   = () => lsGet(ZR.SNAPS_KEY,        {});
-const saveSnapshots   = v  => lsSet(ZR.SNAPS_KEY, v);
-const loadHistory     = () => lsGet(ZR.HISTORY_KEY,       []);
-const saveHistory     = v  => lsSet(ZR.HISTORY_KEY, v);
-const loadMiscHistory = () => lsGet(ZR.MISC_KEY,          []);
-const saveMiscHistory = v  => lsSet(ZR.MISC_KEY, v);
-const loadGymBaseline = () => lsGet(ZR.GYM_BASELINE_KEY,  {});
-const saveGymBaseline = v  => lsSet(ZR.GYM_BASELINE_KEY,  v);
-const getAtkTs        = () => lsGet(ZR.ATK_TS_KEY,        0);
-const saveAtkTs       = v  => lsSet(ZR.ATK_TS_KEY,        v);
+function snapStore(key, ts, data) {
+  try {
+    const snaps = snapLoad(key);
+    const last  = snaps[snaps.length - 1];
+    if (!last || ts - last.ts >= ZR.SNAP_MIN) {
+      snaps.push({ ts, data });
+      if (snaps.length > 250) snaps.splice(0, snaps.length - 250);
+      localStorage.setItem(key, JSON.stringify(snaps));
+    }
+  } catch {}
+}
+function snapFind(key, targetTs) {
+  try {
+    const past = snapLoad(key).filter(s => s.ts <= targetTs + 3600);
+    if (!past.length) return null;
+    return past.reduce((b, s) => Math.abs(s.ts - targetTs) < Math.abs(b.ts - targetTs) ? s : b).data;
+  } catch { return null; }
+}
 
 // ─── API ──────────────────────────────────────────────────────────────────────
 async function apiGet(url) {
@@ -320,7 +318,7 @@ async function apiGet(url) {
   return d;
 }
 
-// ─── fetchAllMembers — mirrors bot's fetchAllMembers exactly ─────────────────
+// ─── Fetch all contributor stats (same endpoint + fields as bot) ─────────────
 async function fetchContributorStat(stat) {
   try {
     const d = await apiGet(
@@ -342,10 +340,8 @@ async function fetchAllMembers() {
     await wait(ZR.DELAY);
   }
 
-  // abort if all gym calls failed
-  if (!responses.gymstrength && !responses.gymdefense && !responses.gymspeed && !responses.gymdexterity) {
+  if (!responses.gymstrength && !responses.gymdefense && !responses.gymspeed && !responses.gymdexterity)
     return null;
-  }
 
   const members = {};
   const ensure = (id, name) => {
@@ -368,214 +364,61 @@ async function fetchAllMembers() {
   return Object.values(members);
 }
 
-// ─── pollAttacks — credits 25E per faction attack to member history ───────────
-async function pollAttacks(knownPids) {
-  const lastTs = getAtkTs();
-  const fromSec = Math.floor(lastTs / 1000);
-  const knownSet = new Set(knownPids.map(String));
-  try {
-    const d = await apiGet(
-      `https://api.torn.com/v2/faction/attacks?limit=1000&sort=DESC&from=${fromSec}&comment=ZenithDash`
-    );
-    const attacks = d.attacks || [];
-    const byMember = {};
-    let maxTs = lastTs;
-    for (const atk of attacks) {
-      const ts = (atk.ended || atk.started || 0) * 1000;
-      if (ts <= lastTs) continue;
-      if (ts > maxTs) maxTs = ts;
-      const attId = atk.attacker?.id;
-      if (!attId || !knownSet.has(String(attId))) continue;
-      const pid = String(attId);
-      if (!byMember[pid]) byMember[pid] = { name: atk.attacker?.name || pid, energy: 0 };
-      byMember[pid].energy += 25;
-    }
-    if (Object.keys(byMember).length) {
-      const history = loadHistory();
-      const now = Date.now();
-      for (const [pid, data] of Object.entries(byMember))
-        if (data.energy > 0)
-          history.push({ player_id: pid, name: data.name, gym_energy: 0, attack_energy: data.energy, recorded_at: now });
-      saveHistory(history);
-    }
-    if (maxTs > lastTs) saveAtkTs(maxTs);
-  } catch(e) { console.warn('[ZR] Attack poll:', e?.message); }
+// ─── Fetch attacks for a time window, returns { pid: count } ─────────────────
+async function fetchAttacks(fromTs, ids) {
+  const a = {};
+  let to = Math.floor(Date.now() / 1000), g = 0, more = true;
+  while (more && g < 30) {
+    try {
+      const d = await apiGet(
+        `https://api.torn.com/v2/faction/attacks?limit=1000&sort=DESC&from=${fromTs}&to=${to}&comment=ZenithDash`
+      );
+      const batch = d.attacks || [];
+      for (const atk of batch) {
+        const aid = atk.attacker?.id;
+        if (!aid || !ids.has(String(aid))) continue;
+        a[aid] = (a[aid] || 0) + 1;
+      }
+      if (batch.length < 1000) { more = false; }
+      else {
+        const last = batch[batch.length - 1];
+        to = Math.max((last.started || last.ended || fromTs) - 1, fromTs);
+        if (to <= fromTs) more = false;
+      }
+    } catch { more = false; }
+    g++; await wait(ZR.DELAY);
+  }
+  return a;
 }
 
-// ─── processPoll — mirrors bot's processPoll from db.js ───────────────────────
-function processPoll(members) {
-  const now = Date.now();
-  const snapshots = loadSnapshots();
-
-  // remove ex-members
-  const currentPids = new Set(members.map(m => String(m.id)));
-  for (const pid of Object.keys(snapshots))
-    if (!currentPids.has(pid)) delete snapshots[pid];
-
-  // PASS 1: raw deltas
-  const raw = [];
-  for (const m of members) {
-    const pid = String(m.id);
-    const prev = snapshots[pid];
-    if (!prev) {
-      snapshots[pid] = {
-        name: m.name, gym: m.gym, xanax: m.xanax, overdoses: m.overdoses,
-        candy: m.candy, crimes: m.crimes||0, energydrink: m.energydrink||0,
-        alcohol: m.alcohol||0, trips: m.trips||0, recorded_at: now
-      };
-      continue;
-    }
-    const safeGym = Number.isFinite(m.gym) ? m.gym : prev.gym;
-    const rawGymDelta = Math.max(0, safeGym - prev.gym);
-    const ageMs = now - (prev.recorded_at || 0);
-    const gymDelta = (rawGymDelta > GYM_DELTA_MAX || ageMs > MAX_SNAP_GAP_MS) ? 0 : rawGymDelta;
-    raw.push({
-      pid, m, prev, gymDelta,
-      xanax:       Math.max(0, (Number.isFinite(m.xanax)        ? m.xanax        : prev.xanax)        - prev.xanax),
-      od:          Math.max(0, (Number.isFinite(m.overdoses)    ? m.overdoses    : prev.overdoses)    - prev.overdoses),
-      candy:       Math.max(0, (Number.isFinite(m.candy)        ? m.candy        : prev.candy)        - prev.candy),
-      crimes:      Math.max(0, (Number.isFinite(m.crimes)       ? m.crimes       : (prev.crimes||0))  - (prev.crimes||0)),
-      energydrink: Math.max(0, (Number.isFinite(m.energydrink)  ? m.energydrink  : (prev.energydrink||0)) - (prev.energydrink||0)),
-      alcohol:     Math.max(0, (Number.isFinite(m.alcohol)      ? m.alcohol      : (prev.alcohol||0)) - (prev.alcohol||0)),
-      trips:       Math.max(0, (Number.isFinite(m.trips)        ? m.trips        : (prev.trips||0))   - (prev.trips||0)),
-    });
-  }
-
-  // PASS 2: mass-spike detection (Torn daily rollover glitch guard)
-  const massSpikeFields = new Set();
-  for (const field of Object.keys(SUSPECT_THRESHOLD)) {
-    if (raw.filter(r => r[field] > SUSPECT_THRESHOLD[field]).length >= 3)
-      massSpikeFields.add(field);
-  }
-
-  // PASS 3: apply deltas with caps
-  const history     = loadHistory();
-  const miscHistory = loadMiscHistory();
-
-  for (const r of raw) {
-    const { pid, m, prev, gymDelta } = r;
-    const finalize = f => massSpikeFields.has(f) ? 0 : (r[f] > INDIVIDUAL_CAP[f] ? 0 : r[f]);
-
-    const xanaxDelta      = finalize('xanax');
-    const odDelta         = finalize('od');
-    const candyDelta      = finalize('candy');
-    const crimesDelta     = r.crimes > 100 ? 0 : r.crimes; // OC payouts can be large legitimately
-    const energyDrinkDelta= finalize('energydrink');
-    const alcoholDelta    = finalize('alcohol');
-    const tripsDelta      = finalize('trips');
-
-    if (gymDelta > 0)
-      history.push({ player_id: pid, name: m.name, gym_energy: gymDelta, attack_energy: 0, recorded_at: now });
-
-    if (xanaxDelta||odDelta||candyDelta||crimesDelta||energyDrinkDelta||alcoholDelta||tripsDelta)
-      miscHistory.push({ player_id: pid, name: m.name, xanax: xanaxDelta, overdoses: odDelta, candy: candyDelta, crimes: crimesDelta, energydrink: energyDrinkDelta, alcohol: alcoholDelta, trips: tripsDelta, recorded_at: now });
-
-    snapshots[pid] = {
-      name: m.name,
-      gym:        Number.isFinite(m.gym)        ? m.gym        : prev.gym,
-      xanax:      Number.isFinite(m.xanax)      ? m.xanax      : prev.xanax,
-      overdoses:  Number.isFinite(m.overdoses)  ? m.overdoses  : prev.overdoses,
-      candy:      Number.isFinite(m.candy)      ? m.candy      : prev.candy,
-      crimes:     Number.isFinite(m.crimes)     ? m.crimes     : (prev.crimes||0),
-      energydrink:Number.isFinite(m.energydrink)? m.energydrink: (prev.energydrink||0),
-      alcohol:    Number.isFinite(m.alcohol)    ? m.alcohol    : (prev.alcohol||0),
-      trips:      Number.isFinite(m.trips)      ? m.trips      : (prev.trips||0),
-      recorded_at: now
-    };
-  }
-
-  // prune old entries
-  const cutoff = now - ZR.PRUNE_DAYS * 86400000;
-  saveSnapshots(snapshots);
-  saveHistory(history.filter(h => h.recorded_at >= cutoff));
-  saveMiscHistory(miscHistory.filter(h => h.recorded_at >= cutoff));
-
-  return snapshots;
-}
-
-// ─── Energy + Misc summaries — mirrors db.js getEnergySummary / getMiscSummary ─
-function getEnergySummary(days) {
-  const cutoff = Date.now() - days * 86400000;
-  const snaps = loadSnapshots();
-  const map = {};
-  for (const h of loadHistory()) {
-    if (h.recorded_at < cutoff) continue;
-    const { player_id: pid, name } = h;
-    if (!map[pid]) map[pid] = { player_id: pid, name, gym_energy: 0, attack_energy: 0, total_energy: 0 };
-    map[pid].gym_energy    += h.gym_energy;
-    map[pid].attack_energy += h.attack_energy;
-    map[pid].total_energy  += h.gym_energy + h.attack_energy;
-    map[pid].name = name;
-  }
-  for (const [pid, s] of Object.entries(snaps))
-    if (!map[pid]) map[pid] = { player_id: pid, name: s.name, gym_energy: 0, attack_energy: 0, total_energy: 0 };
-  const currentIds = new Set(Object.keys(snaps));
-  return Object.values(map).filter(r => currentIds.has(String(r.player_id))).sort((a,b) => b.total_energy - a.total_energy);
-}
-
-function getMiscSummary(days) {
-  const cutoff = Date.now() - days * 86400000;
-  const snaps = loadSnapshots();
-  const map = {};
-  for (const h of loadMiscHistory()) {
-    if (h.recorded_at < cutoff) continue;
-    const pid = h.player_id;
-    if (!map[pid]) map[pid] = { player_id: pid, name: h.name, xanax:0, overdoses:0, candy:0, crimes:0, energydrink:0, alcohol:0, trips:0 };
-    map[pid].xanax       += h.xanax;
-    map[pid].overdoses   += h.overdoses;
-    map[pid].candy       += h.candy;
-    map[pid].crimes      += h.crimes||0;
-    map[pid].energydrink += h.energydrink||0;
-    map[pid].alcohol     += h.alcohol||0;
-    map[pid].trips       += h.trips||0;
-    map[pid].name = h.name;
-  }
-  const currentIds = new Set(Object.keys(snaps));
-  return Object.values(map).filter(r => currentIds.has(String(r.player_id)));
-}
-
-// ─── Weekly gym baseline — refreshed once per week, powers Stat Grinder % ────
-function maybeRefreshGymBaseline(snapshots) {
-  const stored = loadGymBaseline();
-  const weekMs = 7 * 86400000;
-  if (stored._ts && Date.now() - stored._ts < weekMs) return;
-  const baseline = { _ts: Date.now() };
-  for (const [pid, s] of Object.entries(snapshots))
-    if (Number.isFinite(s.gym)) baseline[pid] = { name: s.name, gym: s.gym };
-  saveGymBaseline(baseline);
-}
-
-// ─── Build display rows for a given day window ────────────────────────────────
-function buildRows(days) {
-  const energy  = getEnergySummary(days);
-  const misc    = getMiscSummary(days);
-  const snaps   = loadSnapshots();
-  const baseline= loadGymBaseline();
-  const miscMap = {};
-  for (const m of misc) miscMap[m.player_id] = m;
-
-  return energy.map(r => {
-    const m   = miscMap[r.player_id] || {};
-    const snap = snaps[r.player_id];
-    let statgrowthPct = 0;
-    const bl = baseline[r.player_id];
-    if (bl?.gym > 0 && snap?.gym > bl.gym)
-      statgrowthPct = ((snap.gym - bl.gym) / bl.gym) * 100;
+// ─── Build rows by comparing current snapshot to baseline ────────────────────
+// If a baseline exists for the target window, compute deltas (windowed view).
+// Otherwise show cumulative all-time values (so it's never zero on first visit).
+function buildRows(current, baseline, atkMap) {
+  const hasBase = baseline && Object.keys(baseline).length > 0;
+  const delta = (id, field) => {
+    const c = current[id] ? (current[id][field] || 0) : 0;
+    if (!hasBase || !baseline[id]) return c;
+    return Math.max(0, c - (baseline[id][field] || 0));
+  };
+  const ids = Object.keys(current);
+  return ids.map(id => {
+    const m = current[id];
+    const atkE = (atkMap[id] || 0) * ZR.ATK_E;
+    const gymE = delta(id, 'gym');
     return {
-      id: r.player_id, name: r.name,
-      atkEnergy:        r.attack_energy,
-      gymEnergy:        r.gym_energy,
-      total:            r.total_energy,
-      drugsused:        m.xanax      || 0,
-      candyused:        m.candy      || 0,
-      alcoholused:      m.alcohol    || 0,
-      energydrinkused:  m.energydrink|| 0,
-      criminaloffenses: m.crimes     || 0,
-      overdoses:        m.overdoses  || 0,
-      trips:            m.trips      || 0,
-      statgrowth:       statgrowthPct,
+      id, name: m.name,
+      atkEnergy: atkE, gymEnergy: gymE, total: atkE + gymE,
+      drugsused:        delta(id, 'xanax'),
+      candyused:        delta(id, 'candy'),
+      alcoholused:      delta(id, 'alcohol'),
+      energydrinkused:  delta(id, 'energydrink'),
+      criminaloffenses: delta(id, 'crimes'),
+      overdoses:        delta(id, 'overdoses'),
+      trips:            delta(id, 'trips'),
+      statgrowth:       gymE,
     };
-  }).sort((a,b) => b.total - a.total || b.gymEnergy - a.gymEnergy);
+  }).sort((a, b) => b.total - a.total || b.gymEnergy - a.gymEnergy);
 }
 
 // ─── Sample / Fallback Data ───────────────────────────────────────────────────
@@ -598,19 +441,59 @@ const MOCK = MN.map((name, i) => ({
 // ─── Main Load ────────────────────────────────────────────────────────────────
 async function loadAll() {
   try {
+    const now  = Math.floor(Date.now() / 1000);
+    const ts7  = now - 7  * 86400;
+    const ts30 = now - 30 * 86400;
+
+    // 1. fetch all contributor stats (gym + drugs/candy/crimes/etc)
     const members = await fetchAllMembers();
     if (!members) throw new Error('All gym stat fetches failed');
 
-    const snapshots = processPoll(members);
-    await pollAttacks(Object.keys(snapshots));
-    maybeRefreshGymBaseline(snapshots);
+    // build current data as { pid: { name, gym, xanax, ... } }
+    const current = {};
+    for (const m of members) current[m.id] = m;
+    const ids = new Set(Object.keys(current));
 
-    const now = Math.floor(Date.now() / 1000);
-    const db  = { '7d': buildRows(7), '30d': buildRows(30) };
+    // 2. store snapshot and find old baselines
+    snapStore(ZR.SNAP_KEY, now, current);
+    const base7  = snapFind(ZR.SNAP_KEY, ts7);
+    const base30 = snapFind(ZR.SNAP_KEY, ts30);
+
+    // 3. attacks — paginated, split at 7d / 30d
+    const a7  = {}, a30 = {};
+    let to = now, g = 0, more = true;
+    while (more && g < 30) {
+      try {
+        const d = await apiGet(
+          `https://api.torn.com/v2/faction/attacks?limit=1000&sort=DESC&from=${ts30}&to=${to}&comment=ZenithDash`
+        );
+        const batch = d.attacks || [];
+        for (const atk of batch) {
+          const aid = atk.attacker?.id;
+          if (!aid || !ids.has(String(aid))) continue;
+          a30[aid] = (a30[aid] || 0) + 1;
+          if ((atk.started || atk.ended || 0) >= ts7) a7[aid] = (a7[aid] || 0) + 1;
+        }
+        if (batch.length < 1000) { more = false; }
+        else {
+          const last = batch[batch.length - 1];
+          to = Math.max((last.started || last.ended || ts30) - 1, ts30);
+          if (to <= ts30) more = false;
+        }
+      } catch { more = false; }
+      g++; await wait(ZR.DELAY);
+    }
+
+    // 4. build rows
+    const db = {
+      '7d':  buildRows(current, base7,  a7),
+      '30d': buildRows(current, base30, a30),
+    };
 
     Object.assign(state, {
       db, status: 'live', memberCount: members.length, updated: now,
       memberNames: members.map(m => m.name).sort(),
+      windowed: !!base7,
     });
     render();
     loadAvatars(members);
@@ -710,7 +593,9 @@ function render() {
   el('hero-status').textContent = heroStatusMap[state.status] || 'FACTION DASHBOARD';
 
   // gym note
-  el('gym-note').textContent = 'gym stat gains (contributors) + atk energy · updated every 2 min';
+  el('gym-note').textContent = state.windowed
+    ? 'gym stat gains + atk×25 · windowed from snapshots'
+    : 'gym stat gains (all-time until baseline builds) + atk×25';
 
   // member count
   el('stat-members').textContent = state.memberCount != null ? String(state.memberCount) : '—';
@@ -769,7 +654,7 @@ function render() {
     { title: 'Barfly',          sub: 'Most alcohol consumed',       unit: 'DRINKS',   key: 'alcoholused',      fmt: null },
     { title: 'Overcaffeinated', sub: 'Most energy drinks used',     unit: 'E.DRINKS', key: 'energydrinkused',  fmt: null },
     { title: 'Kingpin',         sub: 'Most crimes committed',       unit: 'CRIMES',   key: 'criminaloffenses', fmt: null },
-    { title: 'Stat Grinder',    sub: 'Gym % growth vs last week',   unit: '%',        key: 'statgrowth',       fmt: v => v > 0 ? '+' + v.toFixed(2) + '%' : '—' },
+    { title: 'Stat Grinder',    sub: 'Battle stats growth',         unit: 'GAINED',   key: 'statgrowth',       fmt: null },
   ];
 
   el('cat-grid').innerHTML = cats.map(c => {
